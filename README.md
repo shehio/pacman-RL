@@ -56,6 +56,43 @@ Both `python_*_DQN` directories contain a CSV file, called `play_500_eps.csv` wh
 
 The progress made on training or playing the game can be visualized using the CSV log files. These files store three key data points: the number of time steps, the number of episodes passed and the reward per episode. The easiest visualization is to make a line plot of the number of steps vs the episode reward. This graph is usually very jittery therefore taking a moving average over a fixed number of steps can be helpful in visualizing long term trends.
 
+### Experiment Tracking and Cloud Runs
+
+The modern PyTorch agent (`pacman_full_DQN/pacman_agent_torch.py`) is instrumented with [Weights & Biases](https://wandb.ai) (entity `shehio`, project `pacman-rl`). The legacy TF1.x agents are untouched. What gets logged:
+
+- All hyperparameters (learning rate, target update frequency, replay settings, Double DQN on/off, etc.) as the run config.
+- Per episode, at the episode-end hook that already wrote `logs/progress.csv`: `episode_reward`, `episode`, `episode_length`, `episode_reward_avg10`, `epsilon`.
+- Per training update, inside the `learn_freq` block (throttled to every 50th update): `loss`, `td_error`, `epsilon`, `beta`.
+- End-of-run summary: `final_step`, `final_episode`, `episodes_completed`, `best_episode_reward`, `mean_episode_reward`, `final_episode_reward_avg10`.
+
+New CLI flags on the torch agent: `--lr`, `--max-steps`, `--update-freq`, `--learn-start`, `--replay-size`, `--double-dqn`, `--no-wandb`, `--no-watch`, `--no-load`, `--no-save`, `--wandb-tags`. Note: the README above describes the full model as using Double DQN, but the torch rewrite computes vanilla max targets; `--double-dqn` opts into true Double DQN targets so the two can be A/B tested.
+
+Two flags exist because the defaults are expensive. Each replay entry holds two float64 frame stacks (about 430 KB), so the default capacity of 10000 needs roughly 4 GB of RAM, and `--replay-size` shrinks it for short runs. `--no-save` skips the checkpoint, which otherwise pickles that whole buffer to disk.
+
+Run locally with tracking (install `requirements.txt` first, and `wandb login` once):
+
+```
+$ cd pacman_full_DQN
+$ python pacman_agent_torch.py --lr 0.00025 --no-watch --no-load
+```
+
+Run without wandb (offline or not installed): add `--no-wandb`, or set `WANDB_MODE=disabled`. Either way the CSV logging still happens, so nothing depends on wandb being available. `logs/progress.csv` is a per-run artifact, so it is gitignored going forward and wandb is the durable record.
+
+One caveat when reading short runs: the exploration schedule holds epsilon at 1.0 for the first 10000 steps, so a run shorter than that is pure random play and `episode_reward` will look the same no matter what you changed. Use `loss` and `td_error` to sanity check a short run, and `episode_reward_avg10` only once training has actually started acting greedily.
+
+**Sweeps.** Two sweep configs live under `sweeps/`. `dqn_grid.yaml` is the full grid over learning rate (5e-3, 1e-4, 2.5e-4), target update frequency (100, 1000, 5000, 10000), and Double DQN on/off, which is 24 runs. `double_dqn_ab.yaml` is the focused two-run A/B that isolates the Double DQN question at a fixed learning rate. Launch either the same way:
+
+```
+$ wandb sweep sweeps/dqn_grid.yaml
+$ wandb agent shehio/pacman-rl/<sweep-id>
+```
+
+**Modal.** `modal_app.py` runs training on an A10G GPU in the cloud. One-time setup: `pip install modal`, `modal token new`, then create a Modal secret named `wandb` holding your `WANDB_API_KEY`. Then:
+
+```
+$ modal run modal_app.py --lr 0.00025 --double-dqn --max-steps 2000000
+```
+
 
 
 

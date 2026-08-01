@@ -1,0 +1,29 @@
+# Two-run A/B isolating the README's Double DQN claim: the torch agent computes
+# vanilla max targets by default, --double-dqn switches to true Double DQN
+# targets. Everything else is held fixed. Launch with:
+#   wandb sweep sweeps/double_dqn_ab.yaml
+#   wandb agent shehio/pacman-rl/<sweep-id>
+program: pacman_full_DQN/pacman_agent_torch.py
+entity: shehio
+project: pacman-rl
+method: grid
+metric:
+  name: episode_reward_avg10
+  goal: maximize
+command:
+  - ${env}
+  - python
+  - ${program}
+  - --no-watch
+  - --no-load
+  - --no-save
+  - ${args_no_boolean_flags}
+parameters:
+  double-dqn:
+    values: [true, false]
+  lr:
+    value: 0.00025
+  update-freq:
+    value: 1000
+  max-steps:
+    value: 2000000

@@ -1,0 +1,9 @@
+# Dependencies for the PyTorch agent (pacman_full_DQN/pacman_agent_torch.py).
+# The original TF1.x agents (pacman_*_DQN/pacman_agent.py) keep their legacy
+# requirements documented in the README and are not covered here.
+torch>=2.2
+gymnasium[atari]>=0.29
+ale-py>=0.9
+scikit-image>=0.22
+numpy
+wandb
