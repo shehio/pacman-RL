@@ -4,3 +4,5 @@ venv/
 .venv/
 wandb/
 *.pt
+# Training run artifact, regenerated on every run (wandb is the durable record).
+**/logs/progress.csv

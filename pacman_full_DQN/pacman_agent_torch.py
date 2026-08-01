@@ -204,11 +204,16 @@ def parse_args():
     parser.add_argument("--max-steps", type=int, default=NUM_STEPS, help="total environment steps to train for")
     parser.add_argument("--update-freq", type=int, default=update_freq, help="target network sync frequency (steps)")
     parser.add_argument("--learn-start", type=int, default=10000, help="steps before gradient updates begin")
+    parser.add_argument("--replay-size", type=int, default=replay_memory_size,
+                        help="prioritized replay capacity (transitions); each one holds two float64 frame "
+                             "stacks, roughly 430 KB, so the default 10000 needs about 4 GB of RAM")
     parser.add_argument("--double-dqn", action="store_true",
                         help="use Double DQN targets (default: vanilla max targets, the current behavior)")
     parser.add_argument("--no-wandb", action="store_true", help="disable Weights & Biases logging")
     parser.add_argument("--no-watch", action="store_true", help="disable rendering even if watch_flag is set")
     parser.add_argument("--no-load", action="store_true", help="start fresh even if a saved model exists")
+    parser.add_argument("--no-save", action="store_true",
+                        help="skip checkpointing (useful for sweeps and smoke runs, the replay buffer is large)")
     parser.add_argument("--wandb-tags", type=str, default="", help="comma-separated wandb tags")
     return parser.parse_args()
 
@@ -233,7 +238,7 @@ def main(args=None):
                 "learn_freq": learn_freq,
                 "learn_start": args.learn_start,
                 "save_freq": save_freq,
-                "replay_memory_size": replay_memory_size,
+                "replay_memory_size": args.replay_size,
                 "replay_alpha": replay_alpha,
                 "replay_beta": replay_beta,
                 "replay_epsilon": replay_epsilon,
@@ -257,13 +262,15 @@ def main(args=None):
                                  (50000, 0.2),
                                  (100000, 0.1),
                                  (500000, 0.05)], outside_value=0.01)
-    replay_memory = PrioritizedReplayBuffer(replay_memory_size, replay_alpha)
+    replay_memory = PrioritizedReplayBuffer(args.replay_size, replay_alpha)
     beta = LinearSchedule(int(args.max_steps/4), initial_p=replay_beta, final_p=1.0)
     dq = []
     start_step = 1
     episode = 1
     if is_load_model and not args.no_load and os.path.exists("saved_model/model.pt"):
         replay_memory, dq, start_step = load_model(model)
+    episode_rewards = []
+    episode_start_step = start_step
     obs, _ = env.reset()
     state = preprocess_frame(obs)
     state_deque = deque([state]*4, maxlen=4)
@@ -292,13 +299,18 @@ def main(args=None):
         state_full = state_tplus1_full
         if is_finished:
             ep_reward = sum(dq)
+            ep_length = step - episode_start_step + 1
+            episode_rewards.append(ep_reward)
             log_to_csv(log_path, {"Steps": step, "Episode reward": ep_reward, "Episode number": episode})
             if use_wandb:
                 wandb.log({"episode_reward": ep_reward,
                            "episode": episode,
+                           "episode_length": ep_length,
+                           "episode_reward_avg10": sum(episode_rewards[-10:]) / len(episode_rewards[-10:]),
                            "epsilon": epsilon.value(step)}, step=step)
             print(f"Step {step}. Finished episode {episode} with reward {ep_reward}")
             dq = []
+            episode_start_step = step + 1
             obs, _ = env.reset()
             state = preprocess_frame(obs)
             state_deque = deque([state]*4, maxlen=4)
@@ -342,15 +354,24 @@ def main(args=None):
                            "beta": beta.value(step)}, step=step)
         if step % args.update_freq == 0:
             target_model.load_state_dict(model.state_dict())
-        if step % save_freq == 0:
+        if step % save_freq == 0 and not args.no_save:
             print(f"State save {step}")
             save_model(model, replay_memory, dq, step)
         if step > args.max_steps:
-            print("Finished training. Saving model to ./saved_model/model.pt")
-            save_model(model, replay_memory, dq, step)
+            if args.no_save:
+                print("Finished training. Skipping checkpoint (--no-save).")
+            else:
+                print("Finished training. Saving model to ./saved_model/model.pt")
+                save_model(model, replay_memory, dq, step)
             if use_wandb:
                 run.summary["final_step"] = step
                 run.summary["final_episode"] = episode
+                run.summary["episodes_completed"] = len(episode_rewards)
+                if episode_rewards:
+                    run.summary["best_episode_reward"] = max(episode_rewards)
+                    run.summary["mean_episode_reward"] = sum(episode_rewards) / len(episode_rewards)
+                    run.summary["final_episode_reward_avg10"] = (
+                        sum(episode_rewards[-10:]) / len(episode_rewards[-10:]))
                 run.finish()
             break
 

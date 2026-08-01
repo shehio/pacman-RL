@@ -8,8 +8,8 @@ Usage (requires `pip install modal`, `modal token new`, and a Modal secret named
     modal run modal_app.py --max-steps 500000 --update-freq 1000
 
 Training logs stream to wandb (entity "shehio", project "pacman-rl"), so the
-ephemeral container filesystem is fine; pass --no-wandb through `train` only if
-you want a throwaway run.
+ephemeral container filesystem is fine; pass --no-wandb for a throwaway run that
+writes nothing anywhere.
 """
 
 import modal
@@ -47,6 +47,7 @@ def train(
     learn_start: int = 10_000,
     double_dqn: bool = False,
     wandb_tags: str = "modal",
+    no_wandb: bool = False,
 ):
     import subprocess
     import sys
@@ -61,9 +62,12 @@ def train(
         "--wandb-tags", wandb_tags,
         "--no-watch",
         "--no-load",
+        "--no-save",
     ]
     if double_dqn:
         cmd.append("--double-dqn")
+    if no_wandb:
+        cmd.append("--no-wandb")
     subprocess.run(cmd, check=True, cwd="/root/pacman_rl")
 
 
@@ -75,6 +79,7 @@ def main(
     learn_start: int = 10_000,
     double_dqn: bool = False,
     wandb_tags: str = "modal",
+    no_wandb: bool = False,
 ):
     train.remote(
         lr=lr,
@@ -83,4 +88,5 @@ def main(
         learn_start=learn_start,
         double_dqn=double_dqn,
         wandb_tags=wandb_tags,
+        no_wandb=no_wandb,
     )
