@@ -1,0 +1,22 @@
+# Launch with: wandb sweep sweeps/dqn_grid.yaml   (then run the printed "wandb agent shehio/pacman-rl/<sweep-id>")
+program: pacman_full_DQN/pacman_agent_torch.py
+entity: shehio
+project: pacman-rl
+method: grid
+metric:
+  name: episode_reward
+  goal: maximize
+command:
+  - ${env}
+  - python
+  - ${program}
+  - --no-watch
+  - --no-load
+  - ${args_no_boolean_flags}
+parameters:
+  lr:
+    values: [0.005, 0.0001, 0.00025]
+  update-freq:
+    values: [100, 1000, 5000, 10000]
+  double-dqn:
+    values: [true, false]
